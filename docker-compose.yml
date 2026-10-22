@@ -1,0 +1,71 @@
+# Local environment of the Fuel service: its own PostgreSQL 16, a WireMock that simulates Assignments (G2)
+# and Telemetry and Routes (G6) until they are deployed, and the service itself.
+#   Everything in Docker:          docker compose up --build
+#   Service from the IDE instead:  docker compose up -d fuel-db dependencies-mock
+
+services:
+  fuel-db:
+    image: postgres:16.15-alpine3.24
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_HOST_PORT}:5432"
+    volumes:
+      - fuel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fuel-net
+
+  # [Archetype Convention Addition] Test double of G2 and G6 (stubs in ./wiremock/mappings)
+  dependencies-mock:
+    image: wiremock/wiremock:3.13.2-alpine
+    ports:
+      - "${MOCK_HOST_PORT}:8080"
+    volumes:
+      - ./wiremock:/home/wiremock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/__admin/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fuel-net
+
+  fuel-service:
+    build:
+      context: .
+    env_file:
+      - .env
+    # Addresses inside the compose network (they replace the localhost values of .env)
+    environment:
+      DB_URL: jdbc:postgresql://fuel-db:5432/${DB_NAME}
+      ASSIGNMENTS_BASE_URL: http://dependencies-mock:8080
+      ROUTES_BASE_URL: http://dependencies-mock:8080
+    ports:
+      - "${APP_PORT}:${SERVER_PORT}"
+    depends_on:
+      fuel-db:
+        condition: service_healthy
+      dependencies-mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${SERVER_PORT}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+volumes:
+  fuel-db-data:
+
+networks:
+  fuel-net:

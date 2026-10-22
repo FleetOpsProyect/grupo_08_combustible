@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.vscode
+.env
+target
+src/test
+wiremock
+*.md
+*.log
+node_modules
+__pycache__

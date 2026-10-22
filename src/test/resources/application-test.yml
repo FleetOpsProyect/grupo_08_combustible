@@ -1,0 +1,32 @@
+# Test-only values for the slice tests (the real ones come from the environment).
+# The datasource of the persistence tests is replaced by Testcontainers (@ServiceConnection).
+spring:
+  datasource:
+    url: jdbc:postgresql://replaced-by-testcontainers:5432/test
+    username: test
+    password: test
+
+server:
+  port: 0
+
+fuel:
+  time-zone: America/Bogota
+  anomaly:
+    threshold-percent: 30
+    minimum-samples: 2
+  outbox:
+    relay-interval-ms: 60000
+    batch-size: 50
+  assignments:
+    base-url: http://assignments.test
+    in-progress-state: IN_PROGRESS
+  routes:
+    base-url: http://routes.test
+    in-progress-status: IN_PROGRESS
+  http:
+    timeout-ms: 2000
+  circuit-breaker:
+    failure-rate-threshold: 50
+    sliding-window-size: 10
+    minimum-calls: 5
+    wait-open-ms: 30000

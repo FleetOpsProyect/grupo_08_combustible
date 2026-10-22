@@ -1,0 +1,107 @@
+# CI of the Fuel service. Runs on every pull request to develop (quality filter before the merge)
+# and on every push to develop (SonarCloud analysis of the integrated branch).
+# Order of the steps, as asked in class: unit tests -> coverage -> static analysis -> build.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  build:
+    name: Tests, coverage, static analysis and build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Unit and integration tests
+        run: ./mvnw -B -Dcheckstyle.skip test
+
+      - name: Coverage gate (100 % domain and application, 80 % service)
+        run: ./mvnw -B -Dcheckstyle.skip -DskipTests verify
+
+      - name: Static analysis (Checkstyle)
+        run: ./mvnw -B checkstyle:check
+
+      - name: Build deployable jar
+        run: ./mvnw -B -DskipTests -Dcheckstyle.skip -Djacoco.skip package
+
+      - name: Build Docker image
+        run: docker build -t fleetops-fuel-service:${{ github.sha }} .
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 7
+
+  # Qodo (PR-Agent): automatic review of the pull request to develop. It runs only on PRs to develop,
+  # not on every developer push, to save the monthly reviews (as explained in class).
+  qodo:
+    name: Qodo review of the pull request
+    needs: build
+    runs-on: ubuntu-24.04
+    # Runs once the OPENAI_KEY secret exists and the QODO_ENABLED variable is "true"
+    if: ${{ github.event_name == 'pull_request' && vars.QODO_ENABLED == 'true' }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Qodo PR-Agent
+        uses: The-PR-Agent/pr-agent@v0.47.0
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG.RESPONSE_LANGUAGE: es-CO
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
+          GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "true"
+
+  sonarcloud:
+    name: SonarCloud and Quality Gate
+    needs: build
+    runs-on: ubuntu-24.04
+
+    # Runs once the repository variables and the SONAR_TOKEN secret are configured
+    if: ${{ vars.SONAR_PROJECT_KEY != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Analyze and wait for the Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >
+          ./mvnw -B -Dcheckstyle.skip verify sonar:sonar
+          -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+          -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+          -Dsonar.qualitygate.wait=true

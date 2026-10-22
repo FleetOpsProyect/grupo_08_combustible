@@ -1,0 +1,18 @@
+# Secrets
+.env
+
+# Build and coverage
+target/
+build/
+dist/
+coverage/
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Other stacks (kept for the shared convention)
+__pycache__/
+node_modules/

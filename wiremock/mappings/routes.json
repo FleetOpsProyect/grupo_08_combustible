@@ -1,0 +1,41 @@
+{
+  "mappings": [
+    {
+      "name": "G6 - route in progress of the happy path assignment",
+      "request": {
+        "method": "GET",
+        "urlPath": "/routes",
+        "queryParameters": {
+          "assignment_id": { "equalTo": "a1111111-1111-4111-8111-111111111111" },
+          "status": { "equalTo": "IN_PROGRESS" }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "content": [
+            {
+              "id": "d1111111-1111-4111-8111-111111111111",
+              "assignment_id": "a1111111-1111-4111-8111-111111111111",
+              "status": "IN_PROGRESS"
+            }
+          ],
+          "page": 0,
+          "size": 20,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "G6 - any other assignment has no route in progress",
+      "priority": 10,
+      "request": { "method": "GET", "urlPath": "/routes" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": { "content": [], "page": 0, "size": 20, "total": 0 }
+      }
+    }
+  ]
+}
