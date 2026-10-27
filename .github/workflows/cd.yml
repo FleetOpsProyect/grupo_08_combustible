@@ -10,8 +10,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
+# No permissions at workflow level: the job asks only for what it needs.
+permissions: {}
 
 concurrency:
   group: cd-production
@@ -22,6 +22,8 @@ jobs:
     name: Push image to Docker Hub and deploy to EC2
     runs-on: ubuntu-24.04
     if: ${{ vars.CD_ENABLED == 'true' }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
