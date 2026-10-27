@@ -29,13 +29,16 @@ Fuel microservice of **FleetOps**, the fleet management backend of FleetCorp S.A
 | Resilience | Resilience4j Circuit Breaker + 2 s timeout | 2.4.0 |
 | API docs | springdoc OpenAPI + Scalar | 2.8.17 |
 | Metrics | Micrometer + Prometheus registry | managed by Spring Boot |
+| Monitoring | Prometheus + Grafana (provisioned dashboard) | 3.13.4 / 13.0.11 |
 | Tests | JUnit 5, Mockito, MockMvc, Testcontainers | managed by Spring Boot |
 | Coverage | JaCoCo | 0.8.15 |
 | Static analysis | Checkstyle (local) + SonarCloud (CI) | 10.26.1 / cloud |
-| PR review | Qodo PR-Agent | 0.47.0 |
+| PR review | Qodo PR-Agent with Gemini (Google AI Studio) | 0.47.0 |
 | Build | Maven Wrapper | 3.9.16 |
 | Containers | Docker + Docker Compose | — |
-| CI | GitHub Actions | — |
+| Image registry | Docker Hub | — |
+| CI/CD | GitHub Actions | — |
+| Hosting | AWS EC2 (t3.micro, free tier) | — |
 
 ---
 
@@ -77,7 +80,9 @@ Key decisions, from the G08 Software Architecture Document:
 | Environment | URL | Trigger |
 |-------------|-----|---------|
 | Local | `http://localhost:8088` | `docker compose up` |
-| AWS EC2 | `http://<EC2_IP>:<APP_PORT>` | Continuous deployment from `main` (next step) |
+| AWS EC2 | `http://<EC2_IP>:<APP_PORT>` | Continuous deployment on every push to `main` |
+| Prometheus | `http://localhost:9090` (EC2: `<EC2_IP>:<PROMETHEUS_PORT>`) | Started with the service |
+| Grafana | `http://localhost:3000` (EC2: `<EC2_IP>:<GRAFANA_PORT>`) | Dashboard *Fuel Service (G08)*, user from `.env` |
 
 ---
 
@@ -101,6 +106,8 @@ docker compose up --build
 | OpenAPI JSON | http://localhost:8088/v3/api-docs |
 | Health | http://localhost:8088/health |
 | Prometheus metrics | http://localhost:8088/prometheus |
+| Prometheus | http://localhost:9090 |
+| Grafana (dashboard *Fuel Service (G08)*) | http://localhost:3000 |
 
 > **Note:** Assignments (G2) and Telemetry and Routes (G6) are not deployed yet. Docker Compose starts a **WireMock** container that simulates them; when the real services exist, only `ASSIGNMENTS_BASE_URL` and `ROUTES_BASE_URL` change. The event broker is not chosen yet either, so the anomaly event is written to the log.
 
@@ -209,15 +216,48 @@ Request body of `POST /fuel_records`:
 6. **SonarCloud** analysis, waiting for the Quality Gate
 7. **Qodo** review, only on pull requests to `develop`
 
-To enable SonarCloud and Qodo, configure in *Settings → Secrets and variables → Actions*:
+SonarCloud and Qodo run only on `develop`, as asked in class, so the monthly Qodo reviews are not spent on every developer push. SonarCloud uses **CI-based analysis**: the `sonarcloud` job analyzes every pull request and push to `develop` and fails if the Quality Gate does not pass. Automatic analysis must stay off (*Administration → Analysis method*), because SonarCloud rejects a CI analysis while the automatic one is on.
+
+## CD pipeline
+
+`.github/workflows/cd.yml` runs on every push to `main` (a release merged from `develop`):
+
+1. Builds the image and pushes it to Docker Hub as `latest` and with the commit hash
+2. Copies `docker-compose.prod.yml` and the WireMock stubs to the EC2 instance
+3. Runs `docker compose pull` and `docker compose up -d` on the instance
+
+**One-time setup of the EC2 instance** (Amazon Linux 2023, t3.micro, ports `APP_PORT` and `GRAFANA_PORT` open in the security group):
+
+```bash
+sudo dnf install -y docker && sudo systemctl enable --now docker && sudo usermod -aG docker ec2-user
+sudo mkdir -p /usr/libexec/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+# 2 GB of swap: the t3.micro has 1 GB of RAM for the service, PostgreSQL, WireMock, Prometheus and Grafana
+sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
+mkdir -p ~/fleetops-fuel-service   # then create ~/fleetops-fuel-service/.env from .env.example
+```
+
+The instance must be running for the deployment to work.
+
+## Secrets and variables
+
+Configure in *Settings → Secrets and variables → Actions*:
 
 | Type | Name | Purpose |
 |------|------|---------|
 | Secret | `SONAR_TOKEN` | SonarCloud token |
-| Variable | `SONAR_PROJECT_KEY` | SonarCloud project key |
-| Variable | `SONAR_ORGANIZATION` | SonarCloud organization |
-| Secret | `OPENAI_KEY` | Model key used by Qodo PR-Agent |
+| Variable | `SONAR_PROJECT_KEY` | `FleetOpsProyect_grupo_08_combustible` |
+| Variable | `SONAR_ORGANIZATION` | `fleetopsproyect-1` |
+| Secret | `GEMINI_API_KEY` | Google AI Studio key used by Qodo PR-Agent |
 | Variable | `QODO_ENABLED` | `true` to run the Qodo review |
+| Secret | `DOCKERHUB_USERNAME` | Docker Hub user that owns the image |
+| Secret | `DOCKERHUB_TOKEN` | Docker Hub access token (read and write) |
+| Secret | `EC2_HOST` | Public IP or DNS of the EC2 instance |
+| Secret | `EC2_USER` | SSH user of the instance (`ec2-user`) |
+| Secret | `EC2_SSH_KEY` | Private key (`.pem`) of the instance |
+| Variable | `CD_ENABLED` | `true` to run the deployment |
 
 **Branching:**
 - `main` holds the released version and `develop` integrates the team; both are protected.
@@ -233,11 +273,14 @@ To enable SonarCloud and Qodo, configure in *Settings → Secrets and variables 
 fleetops-fuel-service/
 ├── .env.example                ← Every environment variable, documented
 ├── docker-compose.yml          ← PostgreSQL 16 + WireMock (G2, G6) + the service
+├── docker-compose.prod.yml     ← Same stack on EC2, using the image from Docker Hub
 ├── Dockerfile                  ← Multi-stage build, non-root runtime user
 ├── checkstyle.xml              ← Local static analysis rules
 ├── pom.xml
 ├── .github/workflows/ci.yml    ← CI: tests, coverage, Checkstyle, build, SonarCloud, Qodo
+├── .github/workflows/cd.yml    ← CD: Docker Hub + deployment to AWS EC2
 ├── wiremock/mappings/          ← Simulated responses of Assignments (G2) and Routes (G6)
+├── monitoring/                 ← Prometheus scrape config, Grafana datasource and dashboard
 └── src/
     ├── main/java/co/edu/univalle/fleetops/fuel/
     │   ├── domain/             ← Business rules, plain Java

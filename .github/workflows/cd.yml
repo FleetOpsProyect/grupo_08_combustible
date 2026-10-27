@@ -1,0 +1,70 @@
+# CD of the Fuel service. Runs on every push to main, that is, when a release is merged from develop.
+# Builds the image, pushes it to Docker Hub and tells the EC2 instance to pull it and restart with
+# docker compose. Runs once the CD_ENABLED variable is "true" and the secrets below exist:
+#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, EC2_HOST, EC2_USER, EC2_SSH_KEY
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Push image to Docker Hub and deploy to EC2
+    runs-on: ubuntu-24.04
+    if: ${{ vars.CD_ENABLED == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push the image (latest and commit tag)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/fleetops-fuel-service:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/fleetops-fuel-service:${{ github.sha }}
+
+      - name: Copy the production compose file, the G2/G6 stubs and the monitoring config to EC2
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.prod.yml,wiremock,monitoring"
+          target: "~/fleetops-fuel-service"
+
+      - name: Pull the new image and restart on EC2
+        uses: appleboy/ssh-action@823bd89e131d8d508129f9443cad5855e9ba96f0 # v1.2.4
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DOCKERHUB_USERNAME
+          script: |
+            cd ~/fleetops-fuel-service
+            export FUEL_IMAGE="$DOCKERHUB_USERNAME/fleetops-fuel-service:latest"
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
