@@ -69,7 +69,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Qodo PR-Agent
-        uses: The-PR-Agent/pr-agent@v0.47.0
+        uses: The-PR-Agent/pr-agent@8e5a9295973b24af4b70cafd0b660a230811ef9e # v0.47.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           config.model: "gemini/gemini-3.8-flash"
