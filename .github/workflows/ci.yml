@@ -60,7 +60,8 @@ jobs:
     name: Qodo review of the pull request
     needs: build
     runs-on: ubuntu-24.04
-    # Runs once the OPENAI_KEY secret exists and the QODO_ENABLED variable is "true"
+    # Runs once the GEMINI_API_KEY secret exists and the QODO_ENABLED variable is "true".
+    # Uses Gemini from Google AI Studio, which has a free tier.
     if: ${{ github.event_name == 'pull_request' && vars.QODO_ENABLED == 'true' }}
     permissions:
       contents: read
@@ -70,8 +71,10 @@ jobs:
       - name: Qodo PR-Agent
         uses: The-PR-Agent/pr-agent@v0.47.0
         env:
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          config.model: "gemini/gemini-3.8-flash"
+          config.fallback_models: '["gemini/gemini-3.8-flash"]'
+          GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONFIG.RESPONSE_LANGUAGE: es-CO
           GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
           GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"

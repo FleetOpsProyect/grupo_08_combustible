@@ -1,0 +1,68 @@
+# Production environment of the Fuel service on AWS EC2, used by the CD pipeline (.github/workflows/cd.yml).
+# Unlike docker-compose.yml, the service is not built here: it runs the image that the pipeline pushed
+# to Docker Hub (FUEL_IMAGE). Only the service port is published; PostgreSQL and WireMock stay internal.
+# The .env file is created once by hand on the instance (copy of .env.example with production values).
+
+services:
+  fuel-db:
+    image: postgres:16.15-alpine3.24
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - fuel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+  # [Archetype Convention Addition] Test double of G2 and G6 while they are not deployed.
+  # When they are, set ASSIGNMENTS_BASE_URL_PROD and ROUTES_BASE_URL_PROD in .env and remove this service
+  dependencies-mock:
+    image: wiremock/wiremock:3.13.2-alpine
+    volumes:
+      - ./wiremock:/home/wiremock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/__admin/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+  fuel-service:
+    image: ${FUEL_IMAGE}
+    env_file:
+      - .env
+    environment:
+      DB_URL: jdbc:postgresql://fuel-db:5432/${DB_NAME}
+      ASSIGNMENTS_BASE_URL: ${ASSIGNMENTS_BASE_URL_PROD:-http://dependencies-mock:8080}
+      ROUTES_BASE_URL: ${ROUTES_BASE_URL_PROD:-http://dependencies-mock:8080}
+    ports:
+      - "${APP_PORT}:${SERVER_PORT}"
+    depends_on:
+      fuel-db:
+        condition: service_healthy
+      dependencies-mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${SERVER_PORT}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+volumes:
+  fuel-db-data:
+
+networks:
+  fuel-net:
