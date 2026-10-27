@@ -10,14 +10,15 @@ on:
   push:
     branches: [develop]
 
-permissions:
-  contents: read
-  pull-requests: read
+# No permissions at workflow level: each job asks only for what it needs.
+permissions: {}
 
 jobs:
   build:
     name: Tests, coverage, static analysis and build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,6 +91,9 @@ jobs:
     name: SonarCloud and Quality Gate
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
 
     # Runs once the repository variables and the SONAR_TOKEN secret are configured
     if: ${{ vars.SONAR_PROJECT_KEY != '' }}
