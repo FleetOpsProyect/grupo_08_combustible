@@ -216,7 +216,7 @@ Request body of `POST /fuel_records`:
 6. **SonarCloud** analysis, waiting for the Quality Gate
 7. **Qodo** review, only on pull requests to `develop`
 
-SonarCloud and Qodo run only on `develop`, as asked in class, so the monthly Qodo reviews are not spent on every developer push. `develop` is the default branch, so SonarCloud's **automatic analysis** checks it and every pull request to it. The `sonarcloud` job of the pipeline stays off while `SONAR_PROJECT_KEY` is empty; to use it instead, switch the project to CI-based analysis (*Administration → Analysis Method*), because SonarCloud rejects a CI analysis while the automatic one is on.
+SonarCloud and Qodo run only on `develop`, as asked in class, so the monthly Qodo reviews are not spent on every developer push. SonarCloud uses **CI-based analysis**: the `sonarcloud` job analyzes every pull request and push to `develop` and fails if the Quality Gate does not pass. Automatic analysis must stay off (*Administration → Analysis method*), because SonarCloud rejects a CI analysis while the automatic one is on.
 
 ## CD pipeline
 
@@ -248,7 +248,7 @@ Configure in *Settings → Secrets and variables → Actions*:
 | Type | Name | Purpose |
 |------|------|---------|
 | Secret | `SONAR_TOKEN` | SonarCloud token |
-| Variable | `SONAR_PROJECT_KEY` | `FleetOpsProyect_grupo_08_combustible` (only for CI-based analysis) |
+| Variable | `SONAR_PROJECT_KEY` | `FleetOpsProyect_grupo_08_combustible` |
 | Variable | `SONAR_ORGANIZATION` | `fleetopsproyect-1` |
 | Secret | `GEMINI_API_KEY` | Google AI Studio key used by Qodo PR-Agent |
 | Variable | `QODO_ENABLED` | `true` to run the Qodo review |
