@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Runs once the GEMINI_API_KEY secret exists and the QODO_ENABLED variable is "true".
     # Uses Gemini from Google AI Studio, which has a free tier (5 requests per minute per model), so only
-    # describe and review run, and gemini-3.1-flash is the fallback when 3.8 is busy. A Gemini outage
+    # describe and review run, and gemini-3.5-flash and 2.5-flash are the fallbacks when 3.8 is busy. A Gemini outage
     # does not block the merge: the quality filter is the build and the SonarCloud Quality Gate.
     # PR-Agent reviews when the PR is opened or reopened, not on every new commit.
     if: ${{ github.event_name == 'pull_request' && vars.QODO_ENABLED == 'true' }}
@@ -77,7 +77,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           config.model: "gemini/gemini-3.8-flash"
-          config.fallback_models: '["gemini/gemini-3.1-flash"]'
+          config.fallback_models: '["gemini/gemini-3.5-flash", "gemini/gemini-2.5-flash"]'
+          # The fallbacks are not in the PR-Agent model table, so their context size is given here
+          config.custom_model_max_tokens: "1048576"
           GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONFIG.RESPONSE_LANGUAGE: es-CO
           GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
