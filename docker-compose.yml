@@ -1,4 +1,4 @@
-# Local environment of the Fuel service: its own PostgreSQL 16, a WireMock that simulates Assignments (G2)
+# Local environment of the Fuel service: its own PostgreSQL 16, Prometheus and Grafana, a WireMock that simulates Assignments (G2)
 # and Telemetry and Routes (G6) until they are deployed, and the service itself.
 #   Everything in Docker:          docker compose up --build
 #   Service from the IDE instead:  docker compose up -d fuel-db dependencies-mock
@@ -64,8 +64,43 @@ services:
     networks:
       - fuel-net
 
+  # Monitoring required by the course: Prometheus scrapes /prometheus and Grafana shows the dashboard
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT}:9090"
+    depends_on:
+      - fuel-service
+    networks:
+      - fuel-net
+
+  grafana:
+    image: grafana/grafana:13.0.11
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fuel-service.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT}:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - fuel-net
+
 volumes:
   fuel-db-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   fuel-net:

@@ -29,6 +29,7 @@ Fuel microservice of **FleetOps**, the fleet management backend of FleetCorp S.A
 | Resilience | Resilience4j Circuit Breaker + 2 s timeout | 2.4.0 |
 | API docs | springdoc OpenAPI + Scalar | 2.8.17 |
 | Metrics | Micrometer + Prometheus registry | managed by Spring Boot |
+| Monitoring | Prometheus + Grafana (provisioned dashboard) | 3.13.4 / 13.0.11 |
 | Tests | JUnit 5, Mockito, MockMvc, Testcontainers | managed by Spring Boot |
 | Coverage | JaCoCo | 0.8.15 |
 | Static analysis | Checkstyle (local) + SonarCloud (CI) | 10.26.1 / cloud |
@@ -80,6 +81,8 @@ Key decisions, from the G08 Software Architecture Document:
 |-------------|-----|---------|
 | Local | `http://localhost:8088` | `docker compose up` |
 | AWS EC2 | `http://<EC2_IP>:<APP_PORT>` | Continuous deployment on every push to `main` |
+| Prometheus | `http://localhost:9090` (EC2: `<EC2_IP>:<PROMETHEUS_PORT>`) | Started with the service |
+| Grafana | `http://localhost:3000` (EC2: `<EC2_IP>:<GRAFANA_PORT>`) | Dashboard *Fuel Service (G08)*, user from `.env` |
 
 ---
 
@@ -103,6 +106,8 @@ docker compose up --build
 | OpenAPI JSON | http://localhost:8088/v3/api-docs |
 | Health | http://localhost:8088/health |
 | Prometheus metrics | http://localhost:8088/prometheus |
+| Prometheus | http://localhost:9090 |
+| Grafana (dashboard *Fuel Service (G08)*) | http://localhost:3000 |
 
 > **Note:** Assignments (G2) and Telemetry and Routes (G6) are not deployed yet. Docker Compose starts a **WireMock** container that simulates them; when the real services exist, only `ASSIGNMENTS_BASE_URL` and `ROUTES_BASE_URL` change. The event broker is not chosen yet either, so the anomaly event is written to the log.
 
@@ -221,13 +226,16 @@ SonarCloud and Qodo run only on `develop`, as asked in class, so the monthly Qod
 2. Copies `docker-compose.prod.yml` and the WireMock stubs to the EC2 instance
 3. Runs `docker compose pull` and `docker compose up -d` on the instance
 
-**One-time setup of the EC2 instance** (Amazon Linux 2023, t3.micro, port `APP_PORT` open in the security group):
+**One-time setup of the EC2 instance** (Amazon Linux 2023, t3.micro, ports `APP_PORT` and `GRAFANA_PORT` open in the security group):
 
 ```bash
 sudo dnf install -y docker && sudo systemctl enable --now docker && sudo usermod -aG docker ec2-user
 sudo mkdir -p /usr/libexec/docker/cli-plugins
 sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+# 2 GB of swap: the t3.micro has 1 GB of RAM for the service, PostgreSQL, WireMock, Prometheus and Grafana
+sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
 mkdir -p ~/fleetops-fuel-service   # then create ~/fleetops-fuel-service/.env from .env.example
 ```
 
@@ -272,6 +280,7 @@ fleetops-fuel-service/
 ├── .github/workflows/ci.yml    ← CI: tests, coverage, Checkstyle, build, SonarCloud, Qodo
 ├── .github/workflows/cd.yml    ← CD: Docker Hub + deployment to AWS EC2
 ├── wiremock/mappings/          ← Simulated responses of Assignments (G2) and Routes (G6)
+├── monitoring/                 ← Prometheus scrape config, Grafana datasource and dashboard
 └── src/
     ├── main/java/co/edu/univalle/fleetops/fuel/
     │   ├── domain/             ← Business rules, plain Java
