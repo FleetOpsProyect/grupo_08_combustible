@@ -233,7 +233,7 @@ sudo dnf install -y docker && sudo systemctl enable --now docker && sudo usermod
 sudo mkdir -p /usr/libexec/docker/cli-plugins
 sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
-# 2 GB of swap: the t3.micro has 1 GB of RAM for the service, PostgreSQL, WireMock, Prometheus and Grafana
+# 2 GB of swap: the t3.micro has 1 GB of RAM for the service, WireMock, Prometheus and Grafana (the database is on Neon)
 sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
 mkdir -p ~/fleetops-fuel-service   # then create ~/fleetops-fuel-service/.env from .env.example
