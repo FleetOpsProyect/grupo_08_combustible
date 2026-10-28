@@ -2,6 +2,7 @@ package co.edu.univalle.fleetops.fuel.adapter.out.persistence;
 
 import co.edu.univalle.fleetops.fuel.application.port.out.OutboxMessage;
 import co.edu.univalle.fleetops.fuel.application.port.out.OutboxPort;
+import co.edu.univalle.fleetops.fuel.crosscutting.CorrelationIdFilter;
 import co.edu.univalle.fleetops.fuel.domain.FuelAnomalyDetected;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,6 +10,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.slf4j.MDC;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
@@ -40,7 +42,8 @@ public class OutboxJpaAdapter implements OutboxPort {
     @Override
     public void save(FuelAnomalyDetected event, OffsetDateTime occurredAt) {
         UUID eventId = idGenerator.get();
-        FuelAnomalyDetectedMessage message = FuelAnomalyDetectedMessage.of(eventId, occurredAt, event);
+        FuelAnomalyDetectedMessage message = FuelAnomalyDetectedMessage.of(eventId, occurredAt, correlationId(),
+                event);
         repository.save(new OutboxEventEntity(eventId, FuelAnomalyDetectedMessage.EVENT_TYPE,
                 event.fuelRecordId(), toJson(message), occurredAt));
     }
@@ -58,6 +61,12 @@ public class OutboxJpaAdapter implements OutboxPort {
             entity.markPublished(publishedAt);
             repository.save(entity);
         });
+    }
+
+    /** Correlation id of the request that created the event; a new one when there is no request (convention). */
+    private String correlationId() {
+        String current = MDC.get(CorrelationIdFilter.MDC_KEY);
+        return current == null || current.isBlank() ? idGenerator.get().toString() : current;
     }
 
     private String toJson(FuelAnomalyDetectedMessage message) {
