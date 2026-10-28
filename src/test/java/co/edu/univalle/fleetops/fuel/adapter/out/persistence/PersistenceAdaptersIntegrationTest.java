@@ -13,6 +13,7 @@ import co.edu.univalle.fleetops.fuel.application.port.out.OutboxMessage;
 import co.edu.univalle.fleetops.fuel.application.query.FuelRecordFilter;
 import co.edu.univalle.fleetops.fuel.application.query.FuelRecordPage;
 import co.edu.univalle.fleetops.fuel.application.query.PageQuery;
+import co.edu.univalle.fleetops.fuel.crosscutting.CorrelationIdFilter;
 import co.edu.univalle.fleetops.fuel.domain.FuelAnomalyDetected;
 import co.edu.univalle.fleetops.fuel.domain.FuelRecord;
 import co.edu.univalle.fleetops.fuel.domain.VehicleFuelAverage;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -173,9 +175,14 @@ class PersistenceAdaptersIntegrationTest {
         // Given
         FuelRecord anomalous = fuelRecords.save(record("3000.0", "12.000", true, decimal("8.00"), true, NOW));
         VehicleFuelAverage average = new VehicleFuelAverage(VEHICLE_ID, decimal("40.00"), 2);
+        MDC.put(CorrelationIdFilter.MDC_KEY, "corr-fuel-1");
 
         // When
-        outbox.save(FuelAnomalyDetected.of(anomalous, average), NOW);
+        try {
+            outbox.save(FuelAnomalyDetected.of(anomalous, average), NOW);
+        } finally {
+            MDC.remove(CorrelationIdFilter.MDC_KEY);
+        }
         List<OutboxMessage> pending = outbox.findPending(10);
 
         // Then
@@ -184,11 +191,25 @@ class PersistenceAdaptersIntegrationTest {
         assertThat(message.eventType()).isEqualTo("fuel_anomaly_detected_event");
         assertThat(message.payload())
                 .contains("\"event_type\"", "\"occurred_at\"", "\"source\"", "\"fuel\"")
+                .contains("\"correlation_id\":\"corr-fuel-1\"")
                 .contains("\"fuel_record_id\"", "\"average_efficiency_km_per_gallon\"")
                 .contains("-05:00");
 
         outbox.markPublished(message.eventId(), NOW);
         outbox.markPublished(UUID.randomUUID(), NOW);
         assertThat(outbox.findPending(10)).isEmpty();
+    }
+
+    @Test
+    void should_generate_correlation_id_when_there_is_no_request() {
+        // Given
+        FuelRecord anomalous = fuelRecords.save(record("3100.0", "12.000", true, decimal("8.00"), true, NOW));
+        VehicleFuelAverage average = new VehicleFuelAverage(VEHICLE_ID, decimal("40.00"), 2);
+
+        // When
+        outbox.save(FuelAnomalyDetected.of(anomalous, average), NOW);
+
+        // Then
+        assertThat(outbox.findPending(10).get(0).payload()).containsPattern("\"correlation_id\":\"[0-9a-f-]{36}\"");
     }
 }

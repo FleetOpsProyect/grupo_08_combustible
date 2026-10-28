@@ -30,6 +30,8 @@
         <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.coverage.exclusions>**/FuelApplication.java</sonar.coverage.exclusions>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <!-- Display name in SonarCloud; without it the scanner uses the Maven <name> -->
+        <sonar.projectName>grupo_08_combustible</sonar.projectName>
     </properties>
 
     <dependencies>

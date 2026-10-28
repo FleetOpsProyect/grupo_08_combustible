@@ -1,0 +1,86 @@
+# Production environment of the Fuel service on AWS EC2, used by the CD pipeline (.github/workflows/cd.yml).
+# Unlike docker-compose.yml, the service is not built here: it runs the image that the pipeline pushed
+# to Docker Hub (FUEL_IMAGE). The database is PostgreSQL 16 on Neon (managed, outside the instance): DB_URL,
+# DB_USER and DB_PASSWORD come from .env, with sslmode=require. Only the service, Prometheus and Grafana
+# ports are published; WireMock stays internal.
+# The .env file is created once by hand on the instance (copy of .env.example with production values).
+
+services:
+  # [Archetype Convention Addition] Test double of G2 and G6 while they are not deployed.
+  # When they are, set ASSIGNMENTS_BASE_URL_PROD and ROUTES_BASE_URL_PROD in .env and remove this service
+  dependencies-mock:
+    image: wiremock/wiremock:3.13.2-alpine
+    volumes:
+      - ./wiremock:/home/wiremock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/__admin/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+  fuel-service:
+    image: ${FUEL_IMAGE}
+    env_file:
+      - .env
+    environment:
+      ASSIGNMENTS_BASE_URL: ${ASSIGNMENTS_BASE_URL_PROD:-http://dependencies-mock:8080}
+      ROUTES_BASE_URL: ${ROUTES_BASE_URL_PROD:-http://dependencies-mock:8080}
+    ports:
+      - "${APP_PORT}:${SERVER_PORT}"
+    depends_on:
+      dependencies-mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${SERVER_PORT}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+  # Monitoring required by the course: Prometheus scrapes /prometheus and Grafana shows the dashboard
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT}:9090"
+    depends_on:
+      - fuel-service
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+  grafana:
+    image: grafana/grafana:13.0.11
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fuel-service.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT}:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - fuel-net
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  fuel-net:

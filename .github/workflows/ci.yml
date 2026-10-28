@@ -10,14 +10,15 @@ on:
   push:
     branches: [develop]
 
-permissions:
-  contents: read
-  pull-requests: read
+# No permissions at workflow level: each job asks only for what it needs.
+permissions: {}
 
 jobs:
   build:
     name: Tests, coverage, static analysis and build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,27 +61,39 @@ jobs:
     name: Qodo review of the pull request
     needs: build
     runs-on: ubuntu-24.04
-    # Runs once the OPENAI_KEY secret exists and the QODO_ENABLED variable is "true"
+    # Runs once the GEMINI_API_KEY secret exists and the QODO_ENABLED variable is "true".
+    # Uses Gemini from Google AI Studio. Its free tier is per model (a few requests per minute and about 20
+    # per day), so only the review runs and two other models are the fallbacks. A Gemini outage does not
+    # block the merge: the quality filter is the build and the SonarCloud Quality Gate.
+    # PR-Agent reviews when the PR is opened or reopened, not on every new commit.
     if: ${{ github.event_name == 'pull_request' && vars.QODO_ENABLED == 'true' }}
+    continue-on-error: true
     permissions:
       contents: read
       issues: write
       pull-requests: write
     steps:
       - name: Qodo PR-Agent
-        uses: The-PR-Agent/pr-agent@v0.47.0
+        uses: The-PR-Agent/pr-agent@8e5a9295973b24af4b70cafd0b660a230811ef9e # v0.47.0
         env:
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          config.model: "gemini/gemini-3.5-flash"
+          config.fallback_models: '["gemini/gemini-2.5-flash", "gemini/gemini-3.8-flash"]'
+          # 3.5 and 2.5 flash are not in the PR-Agent model table, so their context size is given here
+          config.custom_model_max_tokens: "1048576"
+          GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONFIG.RESPONSE_LANGUAGE: es-CO
-          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "false"
           GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
-          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "true"
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "false"
 
   sonarcloud:
     name: SonarCloud and Quality Gate
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
 
     # Runs once the repository variables and the SONAR_TOKEN secret are configured
     if: ${{ vars.SONAR_PROJECT_KEY != '' }}
