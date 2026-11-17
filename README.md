@@ -204,6 +204,24 @@ Request body of `POST /fuel_records`:
 
 ---
 
+## API Gateway
+
+Users reach the service through the shared HTTP API `fleetops-api` (AWS API Gateway, `us-east-1`). Calls between services stay direct.
+
+| Route in the Gateway | Integration (HTTP URI, method `ANY`) | Allowed roles |
+|----------------------|--------------------------------------|---------------|
+| `POST /fuel_records` | `http://<ELASTIC_IP>:<APP_PORT>/fuel_records` | `DRIVER` |
+| `GET /fuel_records` | same as above | `FLEET_ADMIN` |
+| `GET /fuel_records/{id}` | `http://<ELASTIC_IP>:<APP_PORT>/fuel_records/{id}` | `FLEET_ADMIN`, `DRIVER` |
+
+- **Integrations:** one per route shape, not per method; query filters pass through by themselves.
+- **Authorizer:** every route has the Lambda authorizer `fleetops-authorizer`, whose `CATALOG` maps each route to its roles.
+- **Requirements on the instance:** Elastic IP, `APP_PORT` open in the security group, plain HTTP, `/health` answering 200, and `restart: unless-stopped` in `docker-compose.prod.yml`.
+- **If the Elastic IP changes,** the integration URIs must be updated in the Gateway.
+- **If a route changes,** the `CATALOG` of the authorizer must be updated by its owner.
+
+---
+
 ## CI pipeline
 
 `.github/workflows/ci.yml` runs on every pull request and push to `develop`:
