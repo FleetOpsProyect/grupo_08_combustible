@@ -176,9 +176,9 @@ On Windows PowerShell use `.\mvnw.cmd` instead of `./mvnw`.
 
 | Method | Path | Role | Responses |
 |--------|------|------|-----------|
-| POST | `/fuel_records` | Driver | 201, 400, 404, 409, 422, 503 |
-| GET | `/fuel_records/{id}` | Fleet Administrator, internal services | 200, 400, 404 |
-| GET | `/fuel_records` | Fleet Administrator, Reports (G10) | 200 with `summary`, 400 |
+| POST | `/fuel_records` | `DRIVER` | 201, 400, 404, 409, 422, 503 |
+| GET | `/fuel_records/{id}` | `FLEET_ADMIN`, `DRIVER`, internal services | 200, 400, 404 |
+| GET | `/fuel_records` | `FLEET_ADMIN`, Reports (G10) | 200 with `summary`, 400 |
 | GET | `/health` | Internal (no authentication) | 200, 503 |
 | GET | `/prometheus` | Prometheus | 200 |
 
@@ -197,10 +197,28 @@ Request body of `POST /fuel_records`:
 ```
 
 **Published event:** `fuel_anomaly_detected_event`.
-- It uses the shared envelope: `event_id`, `event_type`, `version`, `occurred_at`, `source`, `data`.
+- It uses the shared envelope: `event_id`, `event_type`, `occurred_at`, `source`, `correlation_id`, `data`.
 - Notifications (G4) consumes it.
 
-> **Note:** authentication and roles are handled by the AWS API Gateway with Cognito, before the request reaches the service. Checking that a driver only registers fuel on their own assignment (403) belongs to phase 2 of the shared conventions.
+> **Note:** authentication and roles are handled by the AWS API Gateway (`fleetops-authorizer`, see below), before the request reaches the service. Checking that a driver only registers fuel on their own assignment (403) belongs to phase 2 of the shared conventions.
+
+---
+
+## API Gateway
+
+Users reach the service through the shared HTTP API `fleetops-api` (AWS API Gateway, `us-east-1`). Calls between services stay direct.
+
+| Route in the Gateway | Integration (HTTP URI, method `ANY`) | Allowed roles |
+|----------------------|--------------------------------------|---------------|
+| `POST /fuel_records` | `http://<ELASTIC_IP>:<APP_PORT>/fuel_records` | `DRIVER` |
+| `GET /fuel_records` | same as above | `FLEET_ADMIN` |
+| `GET /fuel_records/{id}` | `http://<ELASTIC_IP>:<APP_PORT>/fuel_records/{id}` | `FLEET_ADMIN`, `DRIVER` |
+
+- **Integrations:** one per route shape, not per method; query filters pass through by themselves.
+- **Authorizer:** every route has the Lambda authorizer `fleetops-authorizer`, whose `CATALOG` maps each route to its roles.
+- **Requirements on the instance:** Elastic IP, `APP_PORT` open in the security group, plain HTTP, `/health` answering 200, and `restart: unless-stopped` in `docker-compose.prod.yml`.
+- **If the Elastic IP changes,** the integration URIs must be updated in the Gateway.
+- **If a route changes,** the `CATALOG` of the authorizer must be updated by its owner.
 
 ---
 
