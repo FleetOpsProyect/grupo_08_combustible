@@ -197,7 +197,7 @@ Request body of `POST /fuel_records`:
 ```
 
 **Published event:** `fuel_anomaly_detected_event`.
-- It uses the shared envelope: `event_id`, `event_type`, `version`, `occurred_at`, `source`, `data`.
+- It uses the shared envelope: `event_id`, `event_type`, `occurred_at`, `source`, `correlation_id`, `data`.
 - Notifications (G4) consumes it.
 
 > **Note:** authentication and roles are handled by the AWS API Gateway with Cognito, before the request reaches the service. Checking that a driver only registers fuel on their own assignment (403) belongs to phase 2 of the shared conventions.
