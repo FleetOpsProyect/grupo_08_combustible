@@ -1,0 +1,22 @@
+# Scrape config of the local Prometheus of the monitoring dojo. EC2_HOST is replaced at startup
+# (see docker-compose.yml). Ports are the ones published by docker-compose.prod.yml on the instance.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Node Exporter: CPU, memory, disk and network of the instance
+  - job_name: ec2-node
+    static_configs:
+      - targets: ["EC2_HOST:19100"]
+
+  # cAdvisor: resources of each Docker container
+  - job_name: ec2-docker
+    static_configs:
+      - targets: ["EC2_HOST:18080"]
+
+  # Fuel service (Spring Boot Actuator) on MANAGEMENT_PORT. Job name kept as fuel-service so the
+  # provisioned Fuel Service (G08) dashboard works unchanged
+  - job_name: fuel-service
+    metrics_path: /prometheus
+    static_configs:
+      - targets: ["EC2_HOST:18001"]
