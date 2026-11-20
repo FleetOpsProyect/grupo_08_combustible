@@ -1,5 +1,5 @@
 # Prometheus scrapes the Micrometer endpoint of the Fuel service inside the compose network.
-# 8080 is SERVER_PORT inside the container (see .env.example).
+# 18001 is MANAGEMENT_PORT inside the container (see .env.example).
 global:
   scrape_interval: 15s
 
@@ -7,4 +7,4 @@ scrape_configs:
   - job_name: fuel-service
     metrics_path: /prometheus
     static_configs:
-      - targets: ["fuel-service:8080"]
+      - targets: ["fuel-service:18001"]
