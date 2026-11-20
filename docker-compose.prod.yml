@@ -1,8 +1,12 @@
 # Production environment of the Fuel service on AWS EC2, used by the CD pipeline (.github/workflows/cd.yml).
 # Unlike docker-compose.yml, the service is not built here: it runs the image that the pipeline pushed
 # to Docker Hub (FUEL_IMAGE). The database is PostgreSQL 16 on Neon (managed, outside the instance): DB_URL,
-# DB_USER and DB_PASSWORD come from .env, with sslmode=require. Only the service, Prometheus and Grafana
-# ports are published; WireMock stays internal.
+# DB_USER and DB_PASSWORD come from .env, with sslmode=require. WireMock stays internal.
+# Monitoring (dojo Prometheus & Grafana): the instance only runs the exporters, on non-standard ports that the
+# security group opens to the team IPs only. Prometheus and Grafana run on each developer's machine
+# (monitoring/ec2/docker-compose.yml) and pull the metrics from here:
+#   NODE_EXPORTER_PORT (19100) -> OS metrics    CADVISOR_PORT (18080) -> container metrics
+#   MANAGEMENT_PORT (18001)    -> service metrics (/prometheus), apart from the API port
 # The .env file is created once by hand on the instance (copy of .env.example with production values).
 
 services:
@@ -30,6 +34,7 @@ services:
       ROUTES_BASE_URL: ${ROUTES_BASE_URL_PROD:-http://dependencies-mock:8080}
     ports:
       - "${APP_PORT}:${SERVER_PORT}"
+      - "${MANAGEMENT_PORT}:${MANAGEMENT_PORT}"
     depends_on:
       dependencies-mock:
         condition: service_healthy
@@ -43,44 +48,32 @@ services:
     networks:
       - fuel-net
 
-  # Monitoring required by the course: Prometheus scrapes /prometheus and Grafana shows the dashboard
-  prometheus:
-    image: prom/prometheus:v3.13.4
+  # Exporters of the monitoring dojo. Prometheus pulls them from outside every 15 s (pull model)
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
     command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=7d
+      - --path.rootfs=/host
+    pid: host
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
+      - /:/host:ro,rslave
     ports:
-      - "${PROMETHEUS_PORT}:9090"
-    depends_on:
-      - fuel-service
+      - "${NODE_EXPORTER_PORT}:9100"
     restart: unless-stopped
-    networks:
-      - fuel-net
 
-  grafana:
-    image: grafana/grafana:13.0.11
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fuel-service.json
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    # Only Docker containers and a slower housekeeping, so it stays light on the t3.micro
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
     volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana-data:/var/lib/grafana
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
     ports:
-      - "${GRAFANA_PORT}:3000"
-    depends_on:
-      - prometheus
+      - "${CADVISOR_PORT}:8080"
     restart: unless-stopped
-    networks:
-      - fuel-net
-
-volumes:
-  prometheus-data:
-  grafana-data:
 
 networks:
   fuel-net:

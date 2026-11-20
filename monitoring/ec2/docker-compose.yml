@@ -1,0 +1,47 @@
+# Monitoring dojo: Prometheus and Grafana on the developer's machine, pulling the metrics of the EC2 instance.
+# Production only runs the exporters (docker-compose.prod.yml); nothing here is installed on EC2.
+#   1. cp monitoring/ec2/.env.example monitoring/ec2/.env   and set EC2_HOST (public IP or DNS of the instance)
+#   2. docker compose -f monitoring/ec2/docker-compose.yml up -d
+#   3. Prometheus: http://localhost:19090/targets    Grafana: http://localhost:13000
+# The security group of the instance must allow your IP on 19100, 18080 and 18001.
+name: fleetops-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    environment:
+      EC2_HOST: ${EC2_HOST:?Set EC2_HOST in monitoring/ec2/.env}
+    # Prometheus does not read environment variables in its config, so the template gets EC2_HOST at startup
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        sed "s/EC2_HOST/$${EC2_HOST}/g" /etc/prometheus/prometheus.template.yml > /prometheus/prometheus.yml &&
+        exec /bin/prometheus --config.file=/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
+        --storage.tsdb.retention.time=7d
+    volumes:
+      - ./prometheus.template.yml:/etc/prometheus/prometheus.template.yml:ro
+      - prometheus-data:/prometheus
+    # Non-standard port, bound to localhost only: nobody else on the network reaches it
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.0.11
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    # Same provisioning as the local environment: Prometheus datasource and the Fuel Service (G08) dashboard
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT}:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

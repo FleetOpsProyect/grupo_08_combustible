@@ -9,6 +9,10 @@ spring:
 server:
   port: 0
 
+management:
+  server:
+    port: 0
+
 fuel:
   time-zone: America/Bogota
   anomaly:

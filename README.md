@@ -29,7 +29,7 @@ Fuel microservice of **FleetOps**, the fleet management backend of FleetCorp S.A
 | Resilience | Resilience4j Circuit Breaker + 2 s timeout | 2.4.0 |
 | API docs | springdoc OpenAPI + Scalar | 2.8.17 |
 | Metrics | Micrometer + Prometheus registry | managed by Spring Boot |
-| Monitoring | Prometheus + Grafana (provisioned dashboard) | 3.13.4 / 13.0.11 |
+| Monitoring | Prometheus + Grafana (local, provisioned dashboards), Node Exporter + cAdvisor (EC2) | 3.13.4 / 13.0.11 / 1.9.1 / 0.49.1 |
 | Tests | JUnit 5, Mockito, MockMvc, Testcontainers | managed by Spring Boot |
 | Coverage | JaCoCo | 0.8.15 |
 | Static analysis | Checkstyle (local) + SonarCloud (CI) | 10.26.1 / cloud |
@@ -81,8 +81,10 @@ Key decisions, from the G08 Software Architecture Document:
 |-------------|-----|---------|
 | Local | `http://localhost:8088` | `docker compose up` |
 | AWS EC2 | `http://<EC2_IP>:<APP_PORT>` | Continuous deployment on every push to `main` |
-| Prometheus | `http://localhost:9090` (EC2: `<EC2_IP>:<PROMETHEUS_PORT>`) | Started with the service |
-| Grafana | `http://localhost:3000` (EC2: `<EC2_IP>:<GRAFANA_PORT>`) | Dashboard *Fuel Service (G08)*, user from `.env` |
+| Prometheus (local service) | `http://localhost:9090` | Started with the service |
+| Grafana (local service) | `http://localhost:3000` | Dashboard *Fuel Service (G08)*, user from `.env` |
+| Prometheus (EC2 monitoring) | `http://localhost:19090` | `docker compose -f monitoring/ec2/docker-compose.yml up -d` (see [Monitoring of EC2](#monitoring-of-ec2)) |
+| Grafana (EC2 monitoring) | `http://localhost:13000` | Same command, user from `monitoring/ec2/.env` |
 
 ---
 
@@ -105,7 +107,7 @@ docker compose up --build
 | API reference (Scalar) | http://localhost:8088/scalar |
 | OpenAPI JSON | http://localhost:8088/v3/api-docs |
 | Health | http://localhost:8088/health |
-| Prometheus metrics | http://localhost:8088/prometheus |
+| Prometheus metrics (management port) | http://localhost:18001/prometheus |
 | Prometheus | http://localhost:9090 |
 | Grafana (dashboard *Fuel Service (G08)*) | http://localhost:3000 |
 
@@ -180,7 +182,9 @@ On Windows PowerShell use `.\mvnw.cmd` instead of `./mvnw`.
 | GET | `/fuel_records/{id}` | `FLEET_ADMIN`, `DRIVER`, internal services | 200, 400, 404 |
 | GET | `/fuel_records` | `FLEET_ADMIN`, Reports (G10) | 200 with `summary`, 400 |
 | GET | `/health` | Internal (no authentication) | 200, 503 |
-| GET | `/prometheus` | Prometheus | 200 |
+| GET | `/prometheus` | Prometheus, only on `MANAGEMENT_PORT` (18001) | 200 |
+
+Actuator (`/health`, `/prometheus`) listens on its own port, `MANAGEMENT_PORT`, so API clients never reach the metrics. `GET /health` is also answered on the API port by `HealthController`, because the API Gateway and the Docker healthcheck call it there.
 
 `GET /fuel_records` filters: `vehicle_id`, `assignment_id`, `route_id`, `anomalous_consumption`, `date_from`, `date_to`, `page` (from 0) and `size` (1 to 100).
 
@@ -222,6 +226,38 @@ Users reach the service through the shared HTTP API `fleetops-api` (AWS API Gate
 
 ---
 
+## Monitoring of EC2
+
+Following the course dojo *Monitoreo de EC2 con Prometheus y Grafana*, production only runs the **exporters**. Prometheus and Grafana run on each developer's machine and pull the metrics from the instance every 15 s (pull model), so nothing extra is installed in production.
+
+| Component | Where | Port | Exposes |
+|-----------|-------|------|---------|
+| Node Exporter | EC2 | 19100 | OS metrics: CPU, memory, disk, network |
+| cAdvisor | EC2 | 18080 | Metrics of each Docker container |
+| Fuel service (Actuator) | EC2 | 18001 (`MANAGEMENT_PORT`) | `/prometheus`, apart from the API port |
+| Prometheus | Developer machine | 19090 | Scrapes the three targets above |
+| Grafana | Developer machine | 13000 | Dashboards *Fuel Service (G08)* (provisioned) and *Node Exporter Full* (ID 1860) |
+
+Every port is non-standard, and the local ones are bound to `127.0.0.1` only.
+
+**Security group of the instance:** inbound rules for **19100**, **18080** and **18001** with the IP of each team member as source (`/32`, "My IP"). Never `0.0.0.0/0`. Ports 9090 and 3000 are no longer needed.
+
+**Run it:**
+
+```bash
+cp monitoring/ec2/.env.example monitoring/ec2/.env   # set EC2_HOST to the public IP of the instance
+docker compose -f monitoring/ec2/docker-compose.yml up -d
+```
+
+**Check it:**
+1. `http://localhost:19090/targets`: `ec2-node`, `ec2-docker` and `fuel-service` are **UP**; the query `up` returns 1 for the three jobs.
+2. `http://localhost:13000` → *Connections → Data sources → Prometheus → Save & test*.
+3. *Dashboards → New → Import* → `1860` → datasource **Prometheus** → *Import* (Node Exporter Full, job `ec2-node`).
+
+**Variables on the instance** (in `~/fleetops-fuel-service/.env`, besides the ones of `.env.example`): `MANAGEMENT_PORT=18001`, `NODE_EXPORTER_PORT=19100`, `CADVISOR_PORT=18080`.
+
+---
+
 ## CI pipeline
 
 `.github/workflows/ci.yml` runs on every pull request and push to `develop`:
@@ -244,14 +280,14 @@ SonarCloud and Qodo run only on `develop`, as asked in class, so the monthly Qod
 2. Copies `docker-compose.prod.yml` and the WireMock stubs to the EC2 instance
 3. Runs `docker compose pull` and `docker compose up -d` on the instance
 
-**One-time setup of the EC2 instance** (Amazon Linux 2023, t3.micro, ports `APP_PORT` and `GRAFANA_PORT` open in the security group):
+**One-time setup of the EC2 instance** (Amazon Linux 2023, t3.micro, `APP_PORT` open in the security group and the monitoring ports open to the team IPs, see [Monitoring of EC2](#monitoring-of-ec2)):
 
 ```bash
 sudo dnf install -y docker && sudo systemctl enable --now docker && sudo usermod -aG docker ec2-user
 sudo mkdir -p /usr/libexec/docker/cli-plugins
 sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
-# 2 GB of swap: the t3.micro has 1 GB of RAM for the service, WireMock, Prometheus and Grafana (the database is on Neon)
+# 2 GB of swap: the t3.micro has 1 GB of RAM for the service, WireMock and the exporters (the database is on Neon)
 sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
 mkdir -p ~/fleetops-fuel-service   # then create ~/fleetops-fuel-service/.env from .env.example
@@ -291,7 +327,7 @@ Configure in *Settings → Secrets and variables → Actions*:
 fleetops-fuel-service/
 ├── .env.example                ← Every environment variable, documented
 ├── docker-compose.yml          ← PostgreSQL 16 + WireMock (G2, G6) + the service
-├── docker-compose.prod.yml     ← Same stack on EC2, using the image from Docker Hub
+├── docker-compose.prod.yml     ← Service + exporters on EC2, using the image from Docker Hub
 ├── Dockerfile                  ← Multi-stage build, non-root runtime user
 ├── checkstyle.xml              ← Local static analysis rules
 ├── pom.xml
@@ -299,6 +335,7 @@ fleetops-fuel-service/
 ├── .github/workflows/cd.yml    ← CD: Docker Hub + deployment to AWS EC2
 ├── wiremock/mappings/          ← Simulated responses of Assignments (G2) and Routes (G6)
 ├── monitoring/                 ← Prometheus scrape config, Grafana datasource and dashboard
+│   └── ec2/                    ← Local Prometheus + Grafana that monitor the EC2 instance (dojo)
 └── src/
     ├── main/java/co/edu/univalle/fleetops/fuel/
     │   ├── domain/             ← Business rules, plain Java
