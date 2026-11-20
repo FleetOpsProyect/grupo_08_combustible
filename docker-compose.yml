@@ -49,6 +49,7 @@ services:
       ROUTES_BASE_URL: http://dependencies-mock:8080
     ports:
       - "${APP_PORT}:${SERVER_PORT}"
+      - "${MANAGEMENT_PORT}:${MANAGEMENT_PORT}"
     depends_on:
       fuel-db:
         condition: service_healthy

@@ -25,8 +25,12 @@ spring:
 server:
   port: ${SERVER_PORT}
 
-# Health and metrics. Base path "/" so the shared contract paths are /health and /prometheus.
+# Health and metrics on their own port (MANAGEMENT_PORT), apart from the API port (monitoring dojo).
+# Base path "/" so the paths are /health and /prometheus. GET /health is also served on SERVER_PORT
+# by HealthController, because the API Gateway and the Docker healthcheck call it there.
 management:
+  server:
+    port: ${MANAGEMENT_PORT}
   endpoints:
     web:
       base-path: /
